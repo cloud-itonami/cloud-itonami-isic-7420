@@ -1,4 +1,4 @@
-# cloud-itonami-7420
+# cloud-itonami-isic-7420
 
 Open Business Blueprint for **ISIC Rev.5 7420**: Photographic activities.
 

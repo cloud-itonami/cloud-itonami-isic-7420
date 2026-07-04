@@ -1,4 +1,4 @@
-{:itonami.blueprint/id "cloud-itonami-7420"
+{:itonami.blueprint/id "cloud-itonami-isic-7420"
  :itonami.blueprint/name "Photographic activities"
  :itonami.blueprint/isic-rev5 "7420"
  :itonami.blueprint/domain :professional/photography

@@ -1,6 +1,6 @@
 # Governance
 
-`cloud-itonami-7420` is an OSS open-business blueprint for photographic activities -- portrait, commercial and event photography, film processing, and related services.
+`cloud-itonami-isic-7420` is an OSS open-business blueprint for photographic activities -- portrait, commercial and event photography, film processing, and related services.
 Governance covers both the capability layer and the operator model.
 
 ## Maintainers

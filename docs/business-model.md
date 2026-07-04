@@ -2,7 +2,7 @@
 
 ## Classification
 
-- Repository: `cloud-itonami-7420`
+- Repository: `cloud-itonami-isic-7420`
 - ISIC Rev.5: `7420`
 - Activity: photographic activities -- portrait, commercial and event photography, film processing, and related services
 - Social impact: professional standards, data sovereignty, transparent audit
