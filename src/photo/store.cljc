@@ -1,0 +1,261 @@
+(ns photo.store
+  "SSoT for the photographic-studio actor, behind a `Store` protocol so
+  the backend is a swap, not a rewrite -- the same seam every prior
+  `cloud-itonami-isic-*` actor in this fleet uses:
+
+    - `MemStore`     -- atom of EDN. The deterministic default for
+                        dev/tests/demo (no deps).
+    - `DatomicStore` -- backed by `langchain.db`, a Datomic-API-compatible
+                        EAV store (datalog q / pull / upsert). Pure `.cljc`,
+                        so it runs offline AND can be pointed at a real
+                        Datomic Local or a kotoba-server pod by swapping
+                        `langchain.db`'s `:db-api` (see langchain.kotoba-db).
+
+  Both implement the same protocol and pass the same contract
+  (test/photo/store_contract_test.clj), which is the whole point: the
+  actor, the Shoot Delivery Governor and the audit ledger never know
+  which SSoT they run on.
+
+  Like `clinic.store`'s/`credit.store`'s/`accounting.store`'s simpler
+  entities, an ENGAGEMENT is acted on directly by the ONE actuation
+  op -- no dynamically-filed sub-record, and the double-delivery guard
+  checks a dedicated `:image-set-delivered?` boolean rather than a
+  `:status` value, the same discipline `clinic.governor`'s/
+  `accounting.governor`'s/`marketadmin.governor`'s guards establish.
+
+  NOTE on naming: the protocol's per-entity accessor is `engagement`
+  directly -- not a Clojure special form, so no `-of` suffix
+  workaround was needed.
+
+  The ledger stays append-only on every backend: 'which engagement was
+  screened for unresolved guardian consent, which image set was
+  delivered, on what jurisdictional basis, approved by whom' is always
+  a query over an immutable log -- the audit trail a client trusting a
+  studio needs, and the evidence an operator needs if a delivery
+  decision is later disputed."
+  (:require #?(:clj  [clojure.edn :as edn]
+               :cljs [cljs.reader :as edn])
+            [photo.registry :as registry]
+            [langchain.db :as d]))
+
+(defprotocol Store
+  (engagement [s id])
+  (all-engagements [s])
+  (consent-of [s engagement-id] "committed guardian-consent screening verdict for an engagement, or nil")
+  (shootplan-of [s engagement-id] "committed shoot-plan evidence assessment, or nil")
+  (ledger [s])
+  (delivery-history [s] "the append-only image-set-delivery history (photo.registry drafts)")
+  (next-sequence [s jurisdiction] "next delivery-number sequence for a jurisdiction")
+  (engagement-already-delivered? [s engagement-id] "has this engagement's image set already been delivered?")
+  (commit-record! [s record] "apply a committed op's record to the SSoT")
+  (append-ledger! [s fact]   "append one immutable decision fact")
+  (with-engagements [s engagements] "replace/seed the engagement directory (map id->engagement)"))
+
+;; ----------------------------- demo data -----------------------------
+
+(defn demo-data
+  "A small, self-contained engagement set so the actor + tests run
+  offline."
+  []
+  {:engagements
+   {"engagement-1" {:id "engagement-1" :client-name "Sato Kenji"
+                    :subjects-requiring-release #{:subject-a}
+                    :subjects-with-signed-release #{:subject-a}
+                    :minor-subject-guardian-consent-unresolved? false
+                    :image-set-delivered? false :jurisdiction "JPN" :status :intake}
+    "engagement-2" {:id "engagement-2" :client-name "Atlantis Doe"
+                    :subjects-requiring-release #{:subject-a}
+                    :subjects-with-signed-release #{:subject-a}
+                    :minor-subject-guardian-consent-unresolved? false
+                    :image-set-delivered? false :jurisdiction "ATL" :status :intake}
+    "engagement-3" {:id "engagement-3" :client-name "鈴木花子"
+                    :subjects-requiring-release #{:subject-a :subject-b}
+                    :subjects-with-signed-release #{:subject-a}
+                    :minor-subject-guardian-consent-unresolved? false
+                    :image-set-delivered? false :jurisdiction "JPN" :status :intake}
+    "engagement-4" {:id "engagement-4" :client-name "田中一郎"
+                    :subjects-requiring-release #{:subject-a}
+                    :subjects-with-signed-release #{:subject-a}
+                    :minor-subject-guardian-consent-unresolved? true
+                    :image-set-delivered? false :jurisdiction "JPN" :status :intake}}})
+
+;; ----------------------------- shared commit logic -----------------------------
+
+(defn- deliver-image-set!
+  "Backend-agnostic `:engagement/mark-delivered` -- looks up the
+  engagement via the protocol and drafts the image-set-delivery
+  record, and returns {:result .. :engagement-patch ..} for the caller
+  to persist."
+  [s engagement-id]
+  (let [e (engagement s engagement-id)
+        seq-n (next-sequence s (:jurisdiction e))
+        result (registry/register-image-set-delivery engagement-id (:jurisdiction e) seq-n)]
+    {:result result
+     :engagement-patch {:image-set-delivered? true
+                        :delivery-number (get result "delivery_number")}}))
+
+;; ----------------------------- MemStore (default) -----------------------------
+
+(defrecord MemStore [a]
+  Store
+  (engagement [_ id] (get-in @a [:engagements id]))
+  (all-engagements [_] (sort-by :id (vals (:engagements @a))))
+  (consent-of [_ id] (get-in @a [:consent-screens id]))
+  (shootplan-of [_ engagement-id] (get-in @a [:shootplans engagement-id]))
+  (ledger [_] (:ledger @a))
+  (delivery-history [_] (:deliveries @a))
+  (next-sequence [_ jurisdiction] (get-in @a [:sequences jurisdiction] 0))
+  (engagement-already-delivered? [_ engagement-id] (boolean (get-in @a [:engagements engagement-id :image-set-delivered?])))
+  (commit-record! [s {:keys [effect path value payload]}]
+    (case effect
+      :engagement/upsert
+      (swap! a update-in [:engagements (:id value)] merge value)
+
+      :shootplan/set
+      (swap! a assoc-in [:shootplans (first path)] payload)
+
+      :consent/set
+      (swap! a assoc-in [:consent-screens (first path)] payload)
+
+      :engagement/mark-delivered
+      (let [engagement-id (first path)
+            {:keys [result engagement-patch]} (deliver-image-set! s engagement-id)
+            jurisdiction (:jurisdiction (engagement s engagement-id))]
+        (swap! a (fn [state]
+                   (-> state
+                       (update-in [:sequences jurisdiction] (fnil inc 0))
+                       (update-in [:engagements engagement-id] merge engagement-patch)
+                       (update :deliveries registry/append result))))
+        result)
+      nil)
+    s)
+  (append-ledger! [_ fact] (swap! a update :ledger conj fact) fact)
+  (with-engagements [s engagements] (when (seq engagements) (swap! a assoc :engagements engagements)) s))
+
+(defn seed-db
+  "A MemStore seeded with the demo engagement set. The deterministic
+  default."
+  []
+  (->MemStore (atom (assoc (demo-data)
+                           :shootplans {} :consent-screens {} :ledger [] :sequences {}
+                           :deliveries []))))
+
+;; ----------------------------- DatomicStore (langchain.db) -----------------------------
+
+(def ^:private schema
+  "DataScript/Datomic-style schema: only constraint attrs are declared.
+  Compound values (shootplan/consent payloads, ledger facts, delivery
+  records) are stored as EDN strings so `langchain.db` doesn't expand
+  them into sub-entities -- the same convention every sibling actor's
+  store uses."
+  {:engagement/id                {:db/unique :db.unique/identity}
+   :shootplan/engagement-id       {:db/unique :db.unique/identity}
+   :consent/engagement-id          {:db/unique :db.unique/identity}
+   :ledger/seq                     {:db/unique :db.unique/identity}
+   :delivery/seq                   {:db/unique :db.unique/identity}
+   :sequence/jurisdiction          {:db/unique :db.unique/identity}})
+
+(defn- enc [v] (pr-str v))
+(defn- dec* [s] (when s (edn/read-string s)))
+
+(defn- engagement->tx [{:keys [id client-name subjects-requiring-release subjects-with-signed-release
+                               minor-subject-guardian-consent-unresolved?
+                               image-set-delivered? jurisdiction status delivery-number]}]
+  (cond-> {:engagement/id id}
+    client-name                                    (assoc :engagement/client-name client-name)
+    subjects-requiring-release                      (assoc :engagement/subjects-requiring-release (enc subjects-requiring-release))
+    subjects-with-signed-release                     (assoc :engagement/subjects-with-signed-release (enc subjects-with-signed-release))
+    (some? minor-subject-guardian-consent-unresolved?) (assoc :engagement/minor-subject-guardian-consent-unresolved? minor-subject-guardian-consent-unresolved?)
+    (some? image-set-delivered?)                        (assoc :engagement/image-set-delivered? image-set-delivered?)
+    jurisdiction                                          (assoc :engagement/jurisdiction jurisdiction)
+    status                                                  (assoc :engagement/status status)
+    delivery-number                                          (assoc :engagement/delivery-number delivery-number)))
+
+(def ^:private engagement-pull
+  [:engagement/id :engagement/client-name :engagement/subjects-requiring-release
+   :engagement/subjects-with-signed-release :engagement/minor-subject-guardian-consent-unresolved?
+   :engagement/image-set-delivered? :engagement/jurisdiction :engagement/status :engagement/delivery-number])
+
+(defn- pull->engagement [m]
+  (when (:engagement/id m)
+    {:id (:engagement/id m) :client-name (:engagement/client-name m)
+     :subjects-requiring-release (or (dec* (:engagement/subjects-requiring-release m)) #{})
+     :subjects-with-signed-release (or (dec* (:engagement/subjects-with-signed-release m)) #{})
+     :minor-subject-guardian-consent-unresolved? (boolean (:engagement/minor-subject-guardian-consent-unresolved? m))
+     :image-set-delivered? (boolean (:engagement/image-set-delivered? m))
+     :jurisdiction (:engagement/jurisdiction m) :status (:engagement/status m)
+     :delivery-number (:engagement/delivery-number m)}))
+
+(defrecord DatomicStore [conn]
+  Store
+  (engagement [_ id]
+    (pull->engagement (d/pull (d/db conn) engagement-pull [:engagement/id id])))
+  (all-engagements [_]
+    (->> (d/q '[:find [?id ...] :where [?e :engagement/id ?id]] (d/db conn))
+         (map #(pull->engagement (d/pull (d/db conn) engagement-pull [:engagement/id %])))
+         (sort-by :id)))
+  (consent-of [_ id]
+    (dec* (d/q '[:find ?p . :in $ ?eid
+                :where [?k :consent/engagement-id ?eid] [?k :consent/payload ?p]]
+              (d/db conn) id)))
+  (shootplan-of [_ engagement-id]
+    (dec* (d/q '[:find ?p . :in $ ?eid
+                :where [?a :shootplan/engagement-id ?eid] [?a :shootplan/payload ?p]]
+              (d/db conn) engagement-id)))
+  (ledger [_]
+    (->> (d/q '[:find ?s ?f :where [?e :ledger/seq ?s] [?e :ledger/fact ?f]] (d/db conn))
+         (sort-by first)
+         (mapv (comp dec* second))))
+  (delivery-history [_]
+    (->> (d/q '[:find ?s ?r :where [?e :delivery/seq ?s] [?e :delivery/record ?r]] (d/db conn))
+         (sort-by first)
+         (mapv (comp dec* second))))
+  (next-sequence [_ jurisdiction]
+    (or (d/q '[:find ?n . :in $ ?j
+              :where [?e :sequence/jurisdiction ?j] [?e :sequence/next ?n]]
+            (d/db conn) jurisdiction)
+        0))
+  (engagement-already-delivered? [s engagement-id]
+    (boolean (:image-set-delivered? (engagement s engagement-id))))
+  (commit-record! [s {:keys [effect path value payload]}]
+    (case effect
+      :engagement/upsert
+      (d/transact! conn [(engagement->tx value)])
+
+      :shootplan/set
+      (d/transact! conn [{:shootplan/engagement-id (first path) :shootplan/payload (enc payload)}])
+
+      :consent/set
+      (d/transact! conn [{:consent/engagement-id (first path) :consent/payload (enc payload)}])
+
+      :engagement/mark-delivered
+      (let [engagement-id (first path)
+            {:keys [result engagement-patch]} (deliver-image-set! s engagement-id)
+            jurisdiction (:jurisdiction (engagement s engagement-id))
+            next-n (inc (next-sequence s jurisdiction))]
+        (d/transact! conn
+                     [(engagement->tx (assoc engagement-patch :id engagement-id))
+                      {:sequence/jurisdiction jurisdiction :sequence/next next-n}
+                      {:delivery/seq (count (delivery-history s)) :delivery/record (enc (get result "record"))}])
+        result)
+      nil)
+    s)
+  (append-ledger! [s fact]
+    (d/transact! conn [{:ledger/seq (count (ledger s)) :ledger/fact (enc fact)}])
+    fact)
+  (with-engagements [s engagements]
+    (when (seq engagements) (d/transact! conn (mapv engagement->tx (vals engagements)))) s))
+
+(defn datomic-store
+  "A DatomicStore (langchain.db backend) seeded from `data`
+  ({:engagements ..}); empty when omitted."
+  ([] (datomic-store {}))
+  ([{:keys [engagements]}]
+   (let [s (->DatomicStore (d/create-conn schema))]
+     (with-engagements s engagements))))
+
+(defn datomic-seed-db
+  "A DatomicStore seeded with the demo engagement set -- the Datomic-
+  backed analog of `seed-db`, used to prove protocol parity."
+  []
+  (datomic-store (demo-data)))
