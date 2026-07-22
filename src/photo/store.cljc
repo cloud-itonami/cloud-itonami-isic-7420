@@ -33,10 +33,9 @@
   a query over an immutable log -- the audit trail a client trusting a
   studio needs, and the evidence an operator needs if a delivery
   decision is later disputed."
-  (:require #?(:clj  [clojure.edn :as edn]
-               :cljs [cljs.reader :as edn])
-            [photo.registry :as registry]
-            [langchain.db :as d]))
+  (:require [photo.registry :as registry]
+            [langchain.db :as d]
+            [langchain-store.core :as ls]))
 
 (defprotocol Store
   (engagement [s id])
@@ -155,16 +154,13 @@
    :delivery/seq                   {:db/unique :db.unique/identity}
    :sequence/jurisdiction          {:db/unique :db.unique/identity}})
 
-(defn- enc [v] (pr-str v))
-(defn- dec* [s] (when s (edn/read-string s)))
-
 (defn- engagement->tx [{:keys [id client-name subjects-requiring-release subjects-with-signed-release
                                minor-subject-guardian-consent-unresolved?
                                image-set-delivered? jurisdiction status delivery-number]}]
   (cond-> {:engagement/id id}
     client-name                                    (assoc :engagement/client-name client-name)
-    subjects-requiring-release                      (assoc :engagement/subjects-requiring-release (enc subjects-requiring-release))
-    subjects-with-signed-release                     (assoc :engagement/subjects-with-signed-release (enc subjects-with-signed-release))
+    subjects-requiring-release                      (assoc :engagement/subjects-requiring-release (ls/enc subjects-requiring-release))
+    subjects-with-signed-release                     (assoc :engagement/subjects-with-signed-release (ls/enc subjects-with-signed-release))
     (some? minor-subject-guardian-consent-unresolved?) (assoc :engagement/minor-subject-guardian-consent-unresolved? minor-subject-guardian-consent-unresolved?)
     (some? image-set-delivered?)                        (assoc :engagement/image-set-delivered? image-set-delivered?)
     jurisdiction                                          (assoc :engagement/jurisdiction jurisdiction)
@@ -179,8 +175,8 @@
 (defn- pull->engagement [m]
   (when (:engagement/id m)
     {:id (:engagement/id m) :client-name (:engagement/client-name m)
-     :subjects-requiring-release (or (dec* (:engagement/subjects-requiring-release m)) #{})
-     :subjects-with-signed-release (or (dec* (:engagement/subjects-with-signed-release m)) #{})
+     :subjects-requiring-release (or (ls/dec* (:engagement/subjects-requiring-release m)) #{})
+     :subjects-with-signed-release (or (ls/dec* (:engagement/subjects-with-signed-release m)) #{})
      :minor-subject-guardian-consent-unresolved? (boolean (:engagement/minor-subject-guardian-consent-unresolved? m))
      :image-set-delivered? (boolean (:engagement/image-set-delivered? m))
      :jurisdiction (:engagement/jurisdiction m) :status (:engagement/status m)
@@ -195,21 +191,21 @@
          (map #(pull->engagement (d/pull (d/db conn) engagement-pull [:engagement/id %])))
          (sort-by :id)))
   (consent-of [_ id]
-    (dec* (d/q '[:find ?p . :in $ ?eid
+    (ls/dec* (d/q '[:find ?p . :in $ ?eid
                 :where [?k :consent/engagement-id ?eid] [?k :consent/payload ?p]]
               (d/db conn) id)))
   (shootplan-of [_ engagement-id]
-    (dec* (d/q '[:find ?p . :in $ ?eid
+    (ls/dec* (d/q '[:find ?p . :in $ ?eid
                 :where [?a :shootplan/engagement-id ?eid] [?a :shootplan/payload ?p]]
               (d/db conn) engagement-id)))
   (ledger [_]
     (->> (d/q '[:find ?s ?f :where [?e :ledger/seq ?s] [?e :ledger/fact ?f]] (d/db conn))
          (sort-by first)
-         (mapv (comp dec* second))))
+         (mapv (comp ls/dec* second))))
   (delivery-history [_]
     (->> (d/q '[:find ?s ?r :where [?e :delivery/seq ?s] [?e :delivery/record ?r]] (d/db conn))
          (sort-by first)
-         (mapv (comp dec* second))))
+         (mapv (comp ls/dec* second))))
   (next-sequence [_ jurisdiction]
     (or (d/q '[:find ?n . :in $ ?j
               :where [?e :sequence/jurisdiction ?j] [?e :sequence/next ?n]]
@@ -223,10 +219,10 @@
       (d/transact! conn [(engagement->tx value)])
 
       :shootplan/set
-      (d/transact! conn [{:shootplan/engagement-id (first path) :shootplan/payload (enc payload)}])
+      (d/transact! conn [{:shootplan/engagement-id (first path) :shootplan/payload (ls/enc payload)}])
 
       :consent/set
-      (d/transact! conn [{:consent/engagement-id (first path) :consent/payload (enc payload)}])
+      (d/transact! conn [{:consent/engagement-id (first path) :consent/payload (ls/enc payload)}])
 
       :engagement/mark-delivered
       (let [engagement-id (first path)
@@ -236,12 +232,12 @@
         (d/transact! conn
                      [(engagement->tx (assoc engagement-patch :id engagement-id))
                       {:sequence/jurisdiction jurisdiction :sequence/next next-n}
-                      {:delivery/seq (count (delivery-history s)) :delivery/record (enc (get result "record"))}])
+                      {:delivery/seq (count (delivery-history s)) :delivery/record (ls/enc (get result "record"))}])
         result)
       nil)
     s)
   (append-ledger! [s fact]
-    (d/transact! conn [{:ledger/seq (count (ledger s)) :ledger/fact (enc fact)}])
+    (d/transact! conn [{:ledger/seq (count (ledger s)) :ledger/fact (ls/enc fact)}])
     fact)
   (with-engagements [s engagements]
     (when (seq engagements) (d/transact! conn (mapv engagement->tx (vals engagements)))) s))
