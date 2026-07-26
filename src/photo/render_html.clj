@@ -4,7 +4,8 @@
   Drives the REAL actor stack (photo.operation -> photo.governor ->
   photo.store). No invented numbers, no timestamps, byte-identical
   across reruns."
-  (:require [clojure.java.io :as io]
+  (:require [jp-go-dds.skin]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [photo.store :as store]
             [photo.operation :as op]
@@ -228,7 +229,9 @@ code { font-size: 12px; background: #f4f4f4; padding: 1px 4px; border-radius: 3p
    "<!doctype html>\n"
    "<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n"
    "<title>photo.render-html -- Shoot Delivery Governor operator console</title>\n"
-   "<style>\n" css "\n</style>\n"
+   "<style>"
+   (jp-go-dds.skin/dds+skin)
+   "</style>\n"
    "</head>\n<body>\n"
    "<header class=\"bar\"><h1>Shoot Delivery Governor -- Operator Console</h1>"
    "<span class=\"badge\">ISIC 7420 &middot; phase " phase/default-phase " (" (:label (get phase/phases phase/default-phase)) ")</span>"
