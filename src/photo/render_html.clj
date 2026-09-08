@@ -6,7 +6,7 @@
   across reruns."
   (:require [jp-go-dds.skin]
             [clojure.java.io :as io]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [photo.store :as store]
             [photo.operation :as op]
             [photo.phase :as phase]
