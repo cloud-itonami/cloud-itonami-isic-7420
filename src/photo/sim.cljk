@@ -1,5 +1,5 @@
 (ns photo.sim
-  "Demo driver -- `clojure -M:dev:run`. Walks a clean engagement
+  "Demo driver -- `kbb -M:dev:run`. Walks a clean engagement
   through intake -> shoot-plan verification -> guardian-consent
   screening -> image-set-delivery proposal (always escalates) ->
   human approval -> commit, then shows four HARD holds (a jurisdiction

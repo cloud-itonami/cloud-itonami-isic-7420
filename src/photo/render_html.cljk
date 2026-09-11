@@ -25,7 +25,7 @@
   "Drives the real OperationActor StateGraph through a scenario built
   directly from `photo.store/demo-data` and `photo.governor`'s actual
   rules (this repo's own `photo.sim` was run directly via
-  `clojure -M:dev:run` and checked -- its ids/ops match the real seed
+  `kbb -M:dev:run` and checked -- its ids/ops match the real seed
   data and rules, so this mirrors the same scenario rather than
   reusing `sim.cljc`'s `-main` directly, to keep this namespace's demo
   self-contained):
