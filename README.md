@@ -114,7 +114,7 @@ autonomous, at any phase, by construction.** Two independent layers
 enforce this (`photo.governor`'s `:actuation/deliver-image-set`
 high-stakes gate and `photo.phase`'s phase table, which never puts
 `:actuation/deliver-image-set` in any phase's `:auto` set) -- see
-`photo.phase`'s docstring and `test/photo/phase_test.clj`'s `deliver-
+`photo.phase`'s docstring and `test/photo/phase_test.cljk`'s `deliver-
 image-set-never-auto-at-any-phase`. The actor may draft, check and
 recommend; a human studio principal is always the one who actually
 delivers an image set. Matching `leasing`'s/`underwriting`'s/
@@ -205,14 +205,14 @@ only -- no bespoke domain capability lib to reference at all.
 
 | File | Role |
 |---|---|
-| `src/photo/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + image-set-delivery history. No dynamically-filed sub-record -- the actuation op acts directly on a pre-seeded engagement, and the double-actuation guard checks a dedicated `:image-set-delivered?` boolean rather than a `:status` value |
-| `src/photo/registry.cljc` | Image-set-delivery draft records, plus `model-release-coverage-insufficient?` -- the SEVENTH instance of this fleet's set-containment/subset check family (`registrar`/`casework`/`secondary` established the first three "sufficiency" instances, `consulting`/`congregation`/`design` the fourth through sixth "permission/boundary" instances), the FOURTH "sufficiency" polarity instance |
-| `src/photo/facts.cljc` | Per-jurisdiction image-rights catalog with an official spec-basis citation per entry, honest coverage reporting |
-| `src/photo/photoadvisor.cljc` | **PhotoOps-LLM** -- `mock-advisor` ‖ `llm-advisor`; intake/shoot-plan-verification/guardian-consent-screening/image-set-delivery proposals |
-| `src/photo/governor.cljc` | **Shoot Delivery Governor** -- 3 HARD checks (spec-basis · evidence-incomplete · model-release-coverage-insufficient, ground-truth set-containment recompute · minor-subject-guardian-consent-unresolved, unconditional evaluation, a GENUINELY NEW concept, the 47th grounding of this discipline, explicitly distinct from the fleet's existing 'guardian-consent-record' evidence-checklist item) + already-delivered guard + 1 soft (confidence/actuation gate) |
-| `src/photo/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → assisted verify → supervised (image-set delivery always human; engagement intake is the ONLY auto-eligible op, no direct capital risk) |
-| `src/photo/operation.cljc` | **OperationActor** -- langgraph-clj StateGraph |
-| `src/photo/sim.cljc` | demo driver |
+| `src/photo/store.cljk` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + image-set-delivery history. No dynamically-filed sub-record -- the actuation op acts directly on a pre-seeded engagement, and the double-actuation guard checks a dedicated `:image-set-delivered?` boolean rather than a `:status` value |
+| `src/photo/registry.cljk` | Image-set-delivery draft records, plus `model-release-coverage-insufficient?` -- the SEVENTH instance of this fleet's set-containment/subset check family (`registrar`/`casework`/`secondary` established the first three "sufficiency" instances, `consulting`/`congregation`/`design` the fourth through sixth "permission/boundary" instances), the FOURTH "sufficiency" polarity instance |
+| `src/photo/facts.cljk` | Per-jurisdiction image-rights catalog with an official spec-basis citation per entry, honest coverage reporting |
+| `src/photo/photoadvisor.cljk` | **PhotoOps-LLM** -- `mock-advisor` ‖ `llm-advisor`; intake/shoot-plan-verification/guardian-consent-screening/image-set-delivery proposals |
+| `src/photo/governor.cljk` | **Shoot Delivery Governor** -- 3 HARD checks (spec-basis · evidence-incomplete · model-release-coverage-insufficient, ground-truth set-containment recompute · minor-subject-guardian-consent-unresolved, unconditional evaluation, a GENUINELY NEW concept, the 47th grounding of this discipline, explicitly distinct from the fleet's existing 'guardian-consent-record' evidence-checklist item) + already-delivered guard + 1 soft (confidence/actuation gate) |
+| `src/photo/phase.cljk` | **Phase 0→3** -- read-only → assisted intake → assisted verify → supervised (image-set delivery always human; engagement intake is the ONLY auto-eligible op, no direct capital risk) |
+| `src/photo/operation.cljk` | **OperationActor** -- langgraph-clj StateGraph |
+| `src/photo/sim.cljk` | demo driver |
 | `test/photo/*_test.clj` | governor contract · phase invariants · store parity · registry conformance · facts coverage |
 
 ## Business-process coverage (honest)
