@@ -1,5 +1,5 @@
 (ns photo.registry-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [photo.registry :as r]))
 
 ;; ----------------------------- model-release-coverage-insufficient? -----------------------------
