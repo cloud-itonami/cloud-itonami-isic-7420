@@ -1,0 +1,32 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:dev:physics` runs it.
+;;
+;; README "Robotics premise": a studio-lighting / capture robot assists
+;; physical shoot setup (ISIC 7420, photographic activities). Its physical
+;; work: rolling a lighting cart with a light raised on its mast across the
+;; studio, and swinging a softbox on the boom into position over the set.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isic-7420"
+ :cases
+ [{:id :light-cart-across-studio
+   :kind :transport
+   :procedure "compact lighting robot (0.40 m wheelbase) rolls across the studio floor with a 12 kg head raised on its mast; swept over mast height (head CoG height)"
+   :params {:mass-kg 25.0 :payload-kg 12.0 :distance-m 15.0 :v-max-mps 0.8 :a-max-mps2 0.4
+            :brake-decel-mps2 1.0 :drive-force-n 120.0 :crr 0.02
+            :cog-height-m 0.30 :support-half-length-m 0.20 :max-time-s 1800.0}
+   :sweep {:param :payload-cog-height-m :values [1.0 1.5 2.0 2.5 3.0 3.5]}
+   :quantity :min-tipover-margin
+   :limit {:min 0.4 :basis "estimate: a raised light over a set with people keeps 40 % of its static tip-over margin"}
+   :boundary {:lo 0.5 :hi 4.0}}
+  {:id :softbox-boom-into-position
+   :kind :manipulator
+   :procedure "boom arm swings a softbox with its light head out and up over the set"
+   :params {:l1-m 0.90 :l2-m 0.80 :m1-kg 3.0 :m2-kg 2.0
+            :from [0.40 0.60] :to [1.40 0.40] :duration-s 4.0 :steps 500}
+   :sweep {:param :payload-kg :values [1.0 2.0 3.0 4.5 6.0]}
+   :quantity :peak-tau1-nm
+   :limit {:max 120.0 :basis "estimate: holding torque of the motorised boom's shoulder drive"}
+   :boundary {:lo 0.2 :hi 15.0}}]}
